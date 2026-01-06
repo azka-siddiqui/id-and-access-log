@@ -36,16 +36,32 @@ The system is designed to simulate core concepts used in SIEM and IDS tools, inc
 ```text
 .
 ├── logs/
-│   └── Raw log files
+│   └── sample.log
+│       # Raw security log file containing events such as LOGIN_FAILED and PORT_SCAN
 │
 ├── output/
-│   └── Generated alert files
+│   └── suspicious_events.txt
+│       # Generated alerts from anomaly detection and event correlation
 │
 ├── src/
-│   ├── log_parser.py        # Regex-based log parsing
-│   ├── threshold_rules.py  # Threshold-based anomaly detection
-│   ├── correlation.py      # Event correlation logic
-│   ├── isolation_forest.py # ML-based anomaly detection
-│   └── main.py             # End-to-end pipeline orchestration
+│   ├── main.py
+│   │   # Main entry point for the system.
+│   │   # Reads raw logs, parses events, runs detection logic periodically, and writes suspicious activity to the output file.
+│   │
+│   ├── parser.py
+│   │   # Regex-based log parser.
+│   │   # Converts raw log lines into structured dictionaries with timestamp, IP address, event type, and user fields.
+│   │
+│   ├── anomaly.py
+│   │   # Implements threshold-based anomaly detection.
+│   │   # Flags IP addresses that exceed a configurable number of LOGIN_FAILED events within a defined time window.
+│   │
+│   ├── correlation.py
+│   │   # Implements event correlation logic.
+│   │   # Detects suspicious multi-step attack patterns such as PORT_SCAN followed by LOGIN_FAILED within a short timeframe.
+│   │
+│   ├── ml_anomaly.py
+│   │   # ML-based anomaly detection using Isolation Forest.
+│   │   # Includes feature extraction and model training/prediction logic.
 │
 └── README.md
