@@ -101,17 +101,19 @@ class DetectionWorker(threading.Thread):
     """
 
     def __init__(self, worker_id, line_queue, alert_sink, alert_lock,
-                 window=timedelta(minutes=10), run_every=5):
+                 seen_alerts, window=timedelta(minutes=10), run_every=5):
         super().__init__(name=f"DetectionWorker-{worker_id}", daemon=True)
         self.worker_id = worker_id
         self.queue = line_queue
         self.alert_sink = alert_sink
         self.alert_lock = alert_lock
+        # Shared, lock-guarded dedupe set so an alert is reported once across
+        # all workers (not once per worker).
+        self._seen_alerts = seen_alerts
         self.window = window
         self.run_every = run_every
 
-        self._events = []          # rolling window of parsed event dicts
-        self._seen_alerts = set()  # dedupe so a standing alert isn't re-emitted
+        self._events = []          # this worker's rolling window of events
         self._since_last_run = 0
 
     def run(self):
@@ -149,15 +151,17 @@ class DetectionWorker(threading.Thread):
         alerts.extend(detect_threshold_anomalies(self._events))
         alerts.extend(correlate_events(self._events))
 
-        # Emit only alerts we haven't reported yet.
-        new_alerts = [a for a in alerts if a not in self._seen_alerts]
-        if not new_alerts:
+        if not alerts:
             return
-        self._seen_alerts.update(new_alerts)
 
-        # Serialize output across workers.
+        # Check-and-emit under the lock so the shared dedupe set stays
+        # consistent and each unique alert is reported exactly once, no matter
+        # which worker computed it.
         with self.alert_lock:
-            for alert in new_alerts:
+            for alert in alerts:
+                if alert in self._seen_alerts:
+                    continue
+                self._seen_alerts.add(alert)
                 self.alert_sink(alert, self.worker_id)
 
 
@@ -176,6 +180,8 @@ class RealTimeMonitor:
         self.queue = queue.Queue()
         self.stop_event = threading.Event()
         self.alert_lock = threading.Lock()
+        # Shared across workers, only ever touched while holding alert_lock.
+        self.seen_alerts = set()
 
         self.tailer = None
         self.workers = []
@@ -188,6 +194,7 @@ class RealTimeMonitor:
         self.workers = [
             DetectionWorker(
                 i, self.queue, self.alert_sink, self.alert_lock,
+                self.seen_alerts,
                 window=self.window, run_every=self.run_every,
             )
             for i in range(self.num_workers)
