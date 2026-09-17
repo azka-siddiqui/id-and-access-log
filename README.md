@@ -4,7 +4,9 @@
 
 This project implements a lightweight **security log analysis and intrusion detection system** that ingests raw system and network logs, detects suspicious behavior using rule-based and machine learning techniques, and outputs actionable alerts for review.
 
-The system is designed to simulate core concepts used in SIEM and IDS tools, including log parsing, threshold-based anomaly detection, event correlation, and ML-based anomaly detection.
+It can run in two modes: a single-pass **batch** mode over an existing log file, and a **multithreaded real-time** mode that follows a log as it grows (like `tail -f`) and runs detection concurrently on a rolling time window.
+
+The system is designed to simulate core concepts used in SIEM and IDS tools, including log parsing, threshold-based anomaly detection, event correlation, ML-based anomaly detection, and real-time streaming ingestion.
 
 ---
 
@@ -29,6 +31,37 @@ The system is designed to simulate core concepts used in SIEM and IDS tools, inc
 - **Alert Generation**
   - All detected suspicious activity is written to a dedicated output file for further investigation.
 
+- **Multithreaded Real-Time Ingestion**
+  - A producer thread follows the log file as it grows and pushes new lines onto a thread-safe `queue.Queue`.
+  - A pool of consumer (worker) threads parse events and run detection concurrently on a rolling time window.
+  - A shared, lock-guarded dedupe set ensures each alert is reported once regardless of which worker detects it, and a `threading.Event` coordinates clean shutdown.
+
+---
+
+## Usage
+
+Run from the `src/` directory.
+
+**Batch mode** (single pass over an existing log file):
+
+```bash
+python main.py --mode batch --log ../logs/sample.log
+```
+
+**Real-time mode** (follow a live log with multiple worker threads). In one terminal, stream synthetic events:
+
+```bash
+python log_generator.py ../logs/live.log 20
+```
+
+In another terminal, follow that log and detect intrusions as they happen:
+
+```bash
+python main.py --mode realtime --log ../logs/live.log --workers 3 --seconds 20
+```
+
+Detected alerts print to the console (tagged with the worker that found them) and are appended to `output/suspicious_events.txt`.
+
 ---
 
 ## Project Structure
@@ -46,7 +79,16 @@ The system is designed to simulate core concepts used in SIEM and IDS tools, inc
 ├── src/
 │   ├── main.py
 │   │   # Main entry point for the system.
-│   │   # Reads raw logs, parses events, runs detection logic periodically, and writes suspicious activity to the output file.
+│   │   # Supports batch mode (single pass) and multithreaded realtime mode.
+│   │
+│   ├── ingest.py
+│   │   # Multithreaded real-time ingestion pipeline.
+│   │   # LogTailer (producer) follows the log and enqueues lines; DetectionWorker
+│   │   # threads (consumers) parse events and run detection on a rolling window.
+│   │
+│   ├── log_generator.py
+│   │   # Demo helper that streams synthetic log events to a file so realtime
+│   │   # mode has something live to follow.
 │   │
 │   ├── parser.py
 │   │   # Regex-based log parser.
